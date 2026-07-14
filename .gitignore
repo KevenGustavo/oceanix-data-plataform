@@ -1,0 +1,19 @@
+# Ambientes Virtuais
+.venv/
+venv/
+env/
+
+# Chaves e Segredos
+.env
+credentials.json
+
+# Dados Brutos
+data/
+*.csv
+*.json
+*.parquet
+
+# Airflow e Logs
+logs/
+airflow.db
+airflow.cfg
