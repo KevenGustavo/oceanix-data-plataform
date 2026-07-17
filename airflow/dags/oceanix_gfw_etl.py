@@ -10,7 +10,7 @@ from pendulum import datetime, duration
 # Configurações padrão de tolerância a falhas
 default_args = {
     "owner": "data_engineering",
-    "retries": 2, # Tenta de novo até 2 vezes se a API do GFW cair
+    "retries": 2,
     "retry_delay": duration(minutes=5),
 }
 
@@ -29,17 +29,17 @@ def oceanix_pipeline():
     
     ingest_bronze = BashOperator(
         task_id="extract_bronze",
-        bash_command="python /opt/airflow/src/ingest_bronze.py --date {{ ds }}"
+        bash_command="python /opt/airflow/src/ingest_gfw_bronze.py --date {{ ds }}"
     )
 
     transform_silver = BashOperator(
         task_id="transform_silver",
-        bash_command="python /opt/airflow/src/transform_silver.py --date {{ ds }}"
+        bash_command="python /opt/airflow/src/transform_gfw_silver.py --date {{ ds }}"
     )
 
     transform_gold = BashOperator(
         task_id="transform_gold",
-        bash_command="python /opt/airflow/src/transform_gold.py --date {{ ds }}"
+        bash_command="python /opt/airflow/src/transform_gfw_gold.py --date {{ ds }}"
     )
 
     # Ordem linear de execução
