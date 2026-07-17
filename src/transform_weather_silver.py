@@ -21,7 +21,7 @@ def process_weather_silver(target_date_str: str):
     ano, mes, dia = target_date.strftime('%Y'), target_date.strftime('%m'), target_date.strftime('%d')
     
     path_partition = f"year={ano}/month={mes}/day={dia}"
-    remote_bronze_file = f"weather/{path_partition}/itaqui_weather.json"
+    remote_bronze_file = f"weather/{path_partition}/coastal_weather.json"
     local_tmp_file = f"/tmp/bronze_weather_{ano}{mes}{dia}.json"
     
     # 1. Extração - Download da Camada Bronze
@@ -41,6 +41,7 @@ def process_weather_silver(target_date_str: str):
     
     # 3. Transformação
     df_exploded = df_bronze.select(
+        col("port_name"),
         explode(
             arrays_zip(
                 col("hourly.time"),
@@ -52,6 +53,7 @@ def process_weather_silver(target_date_str: str):
     )
     
     df_silver = df_exploded.select(
+        col("port_name"),
         to_timestamp(col("hourly_data.time"), "yyyy-MM-dd'T'HH:mm").alias("weather_timestamp"),
         col("hourly_data.wave_height").alias("wave_height_m"),
         col("hourly_data.wind_speed_10m").alias("wind_speed_kmh"),
@@ -72,7 +74,7 @@ def process_weather_silver(target_date_str: str):
         data=buffer_silver.getvalue(),
         container="silver",
         path=f"weather_flattened/{path_partition}",
-        file_name="itaqui_weather.parquet"
+        file_name="coastal_weather.parquet"
     )
 
 if __name__ == "__main__":

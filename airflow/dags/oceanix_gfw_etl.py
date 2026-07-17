@@ -1,11 +1,12 @@
 """
 DAG de Ingestão e Processamento - Plataforma Oceanix.
 Orquestra o pipeline Medallion (Global Fishing Watch -> Azure Data Lake).
-Utiliza a TaskFlow API moderna e a macro nativa de data lógica ({{ ds }}).
+Utiliza a TaskFlow API moderna e a macro nativa de data lógica (2026-07-10).
 """
 from airflow.decorators import dag
 from airflow.operators.bash import BashOperator
 from pendulum import datetime, duration
+from assets import silver_gfw_asset
 
 # Configurações padrão de tolerância a falhas
 default_args = {
@@ -29,17 +30,17 @@ def oceanix_pipeline():
     
     ingest_bronze = BashOperator(
         task_id="extract_bronze",
-        bash_command="python /opt/airflow/src/ingest_gfw_bronze.py --date {{ ds }}"
+        bash_command="python /opt/airflow/src/ingest_gfw_bronze.py --date 2026-07-10"
     )
 
     transform_silver = BashOperator(
         task_id="transform_silver",
-        bash_command="python /opt/airflow/src/transform_gfw_silver.py --date {{ ds }}"
+        bash_command="python /opt/airflow/src/transform_gfw_silver.py --date 2026-07-10",
+        outlets=[silver_gfw_asset]
     )
-
     transform_gold = BashOperator(
         task_id="transform_gold",
-        bash_command="python /opt/airflow/src/transform_gfw_gold.py --date {{ ds }}"
+        bash_command="python /opt/airflow/src/transform_gfw_gold.py --date 2026-07-10"
     )
 
     # Ordem linear de execução

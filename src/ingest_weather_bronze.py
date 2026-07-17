@@ -2,6 +2,7 @@
 Ingestão Bronze - Open-Meteo (Marine Weather API).
 Extrai dados históricos de clima, vento e ondas para a Baía de São Marcos (Itaqui).
 """
+import json
 import logging
 import argparse
 import requests
@@ -13,48 +14,52 @@ from loaders.adls_loader import ADLSLoader
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Coordenadas da área de espera (Loitering) do Complexo do Itaqui
-ITAQUI_LAT = -2.55
-ITAQUI_LON = -44.40
+PORTS = {
+    "Itaqui": {"lat": -2.55, "lon": -44.40},
+    "Suape": {"lat": -8.39, "lon": -34.95},
+    "Santos": {"lat": -23.95, "lon": -46.33},
+    "Paranagua": {"lat": -25.50, "lon": -48.50},
+    "Rio Grande": {"lat": -32.13, "lon": -52.05}
+}
 
 def ingest_weather_bronze(target_date_str: str):
     logging.info(f"Iniciando Ingestão Bronze (Weather) para a data: {target_date_str}")
     
     target_date = datetime.strptime(target_date_str, '%Y-%m-%d')
     ano, mes, dia = target_date.strftime('%Y'), target_date.strftime('%m'), target_date.strftime('%d')
-    
+
+    all_weather_data = []
+
     # 1. Requisição para a API Open-Meteo (Historical Marine API)
     url = "https://marine-api.open-meteo.com/v1/marine"
-    params = {
-        "latitude": ITAQUI_LAT,
-        "longitude": ITAQUI_LON,
-        "start_date": target_date_str,
-        "end_date": target_date_str,
-        "hourly": "wave_height,wind_speed_10m,ocean_current_velocity",
-        "timezone": "UTC"
-    }
-    
-    logging.info(f"Fazendo requisição para Open-Meteo API (Lat: {ITAQUI_LAT}, Lon: {ITAQUI_LON})...")
-    response = requests.get(url, params=params)
-    
-    if response.status_code != 200:
-        logging.error(f"Erro na API Open-Meteo: {response.status_code} - {response.text}")
-        return
+
+    for port_name, coords in PORTS.items():
+        logging.info(f"Extraindo clima para: {port_name}")
+        params = {
+            "latitude": coords["lat"],
+            "longitude": coords["lon"],
+            "start_date": target_date_str,
+            "end_date": target_date_str,
+            "hourly": "wave_height,wind_speed_10m,ocean_current_velocity",
+            "timezone": "UTC"
+        }
+        response = requests.get("https://marine-api.open-meteo.com/v1/marine", params=params)
         
-    weather_data = response.json()
+        if response.status_code == 200:
+            data = response.json()
+            data["port_name"] = port_name 
+            all_weather_data.append(data)
     
-    # Validação simples
-    if "hourly" not in weather_data:
-        logging.warning("API não retornou a chave 'hourly'. Verifique os parâmetros.")
-        return
+
+    json_bytes = json.dumps(all_weather_data).encode('utf-8')    
 
     # 2. Definição de caminho e Upload
     caminho_lake_bronze = f"weather/year={ano}/month={mes}/day={dia}"
-    nome_arquivo = "taqui_weather.json"
+    nome_arquivo = "coastal_weather.json"
     
-    logging.info(f"Iniciando ingestão diária: {len(weather_data)} eventos.")
+    logging.info(f"Iniciando ingestão diária: {len(json_bytes)} eventos.")
     loader = ADLSLoader()
-    loader.upload_data_to_container(weather_data, "bronze", caminho_lake_bronze, nome_arquivo)
+    loader.upload_data_to_container(json_bytes, "bronze", caminho_lake_bronze, nome_arquivo)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Ingestão de clima marítimo diário")
