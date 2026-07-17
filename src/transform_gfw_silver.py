@@ -9,9 +9,9 @@ import argparse
 from datetime import datetime
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, to_timestamp, current_timestamp
-from azure.identity import ClientSecretCredential
-from azure.storage.filedatalake import DataLakeServiceClient
 from dotenv import load_dotenv
+from extractors.adls_extractor import ADLSExtractor
+from loaders.adls_loader import ADLSLoader
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -23,29 +23,23 @@ def process_silver(target_date_str: str):
     ano, mes, dia = target_date.strftime('%Y'), target_date.strftime('%m'), target_date.strftime('%d')
     particao = f"year={ano}/month={mes}/day={dia}"
     
-    # 1. Conexão Azure
-    credential = ClientSecretCredential(os.getenv("AZURE_TENANT_ID"), os.getenv("AZURE_CLIENT_ID"), os.getenv("AZURE_CLIENT_SECRET"))
-    service_client = DataLakeServiceClient(account_url=f"https://{os.getenv('AZURE_STORAGE_ACCOUNT_NAME')}.dfs.core.windows.net", credential=credential)
-
-    # 2. Download da Bronze para disco local 
-    caminho_lake_bronze = f"gfw/events/{particao}/vessel_events_brazil.json"
-    caminho_local_tmp = f"/tmp/bronze_{ano}{mes}{dia}.json"
+    # 1. Download da Bronze para disco local 
+    remote_bronze_file = f"gfw/events/{particao}/vessel_events_brazil.json"
+    local_tmp_file = f"/tmp/bronze_{ano}{mes}{dia}.json"
     
+    extractor = ADLSExtractor()
     try:
-        logging.info("Baixando dados da Camada Bronze...")
-        file_client = service_client.get_file_system_client("bronze").get_file_client(caminho_lake_bronze)
-        with open(caminho_local_tmp, "wb") as f:
-            f.write(file_client.download_file().readall())
-    except Exception as e:
-        logging.warning(f"Nenhum arquivo Bronze encontrado para esta data ou erro de rede: {e}")
+        extractor.download_file_to_local("bronze", remote_bronze_file, local_tmp_file)
+    except Exception:
+        logging.warning("Encerrando pipeline devido a falha na extração Silver.")
         return
 
-    # 3. Inicializa o Apache Spark Local
+    # 2. Inicializa o Apache Spark Local
     spark = SparkSession.builder.master("local[1]").appName("Oceanix_Medallion").getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
     
     logging.info("Processando Camada Silver (Flattening)...")
-    df_bronze = spark.read.json(f"file:{caminho_local_tmp}")
+    df_bronze = spark.read.json(f"file:{local_tmp_file}")
     
     df_silver = df_bronze.select(
         col("id").alias("event_id"),
@@ -78,10 +72,15 @@ def process_silver(target_date_str: str):
         allow_truncated_timestamps=True
     )
     
-    caminho_gold_lake = f"gfw/events_flattened/{particao}/events_flattened.parquet"
-    service_client.get_file_system_client("silver").get_file_client(caminho_gold_lake).upload_data(buffer_silver.getvalue(), overwrite=True)
-   
-    logging.info(f"Camada Silver salva com sucesso em: {caminho_gold_lake}")
+    caminho_silver_lake = f"gfw/events_flattened/{particao}"
+    
+    loader = ADLSLoader()
+    loader.upload_data_to_container(
+        data=buffer_silver.getvalue(),
+        container="silver",
+        path=caminho_silver_lake,
+        file_name="events_flattened.parquet"
+    )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

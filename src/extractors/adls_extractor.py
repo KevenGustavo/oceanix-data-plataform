@@ -1,6 +1,6 @@
 """
-Módulo de carga para o Azure Data Lake Storage Gen2.
-Gerencia o upload de arquivos para as camadas do Data Lake.
+Módulo de extração para o Azure Data Lake Storage Gen2.
+Gerencia o download de arquivos do Data Lake para processamento local.
 """
 import os
 import logging
@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-class ADLSLoader:
+class ADLSExtractor:
     def __init__(self):
         self.tenant_id = os.getenv("AZURE_TENANT_ID")
         self.client_id = os.getenv("AZURE_CLIENT_ID")
@@ -30,21 +30,18 @@ class ADLSLoader:
             credential=self.credential
         )
 
-    def upload_data_to_container(self, data, container: str, path: str, file_name: str):
+    def download_file_to_local(self, container: str, remote_file_path: str, local_file_path: str):
         """
-        Faz o upload de dados (string JSON ou bytes Parquet) para o Data Lake.
+        Faz o download de um arquivo do Data Lake para um diretório local.
         """
         try:
-            file_system_client = self.service_client.get_file_system_client(file_system=container)
+            file_client = self.service_client.get_file_system_client(container).get_file_client(remote_file_path)
             
-            directory_client = file_system_client.get_directory_client(path)
-            directory_client.create_directory()
-            
-            file_client = directory_client.get_file_client(file_name)
-            file_client.upload_data(data, overwrite=True)
-            
-            logging.info(f"Upload concluído com sucesso: {container}/{path}/{file_name}")
+            with open(local_file_path, "wb") as f:
+                f.write(file_client.download_file().readall())
+                
+            logging.info(f"Download concluído: {container}/{remote_file_path} -> {local_file_path}")
             
         except Exception as e:
-            logging.error(f"Erro ao fazer upload para o Azure Data Lake: {e}")
-            raise
+            logging.error(f"Erro ao baixar arquivo do Azure Data Lake ({remote_file_path}): {e}")
+            raise   

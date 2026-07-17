@@ -2,16 +2,16 @@
 Transformação Gold: Agregação de métricas de negócio.
 Lê a camada Silver (Parquet), agrega métricas e salva na camada Gold (Parquet).
 """
-import os
 import io
 import logging
 import argparse
 from datetime import datetime
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, sum, count, when, round
-from azure.identity import ClientSecretCredential
-from azure.storage.filedatalake import DataLakeServiceClient
 from dotenv import load_dotenv
+from extractors.adls_extractor import ADLSExtractor
+from loaders.adls_loader import ADLSLoader
+
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -23,29 +23,23 @@ def process_gold(target_date_str: str):
     ano, mes, dia = target_date.strftime('%Y'), target_date.strftime('%m'), target_date.strftime('%d')
     particao = f"year={ano}/month={mes}/day={dia}"
     
-    # 1. Conexão Azure
-    credential = ClientSecretCredential(os.getenv("AZURE_TENANT_ID"), os.getenv("AZURE_CLIENT_ID"), os.getenv("AZURE_CLIENT_SECRET"))
-    service_client = DataLakeServiceClient(account_url=f"https://{os.getenv('AZURE_STORAGE_ACCOUNT_NAME')}.dfs.core.windows.net", credential=credential)
-
-    # 2. Download da Silver (Parquet) para disco local
-    caminho_lake_silver = f"gfw/events_flattened/{particao}/events_flattened.parquet"
-    caminho_local_tmp = f"/tmp/silver_{ano}{mes}{dia}.parquet"
+    # 1. Download da Silver (Parquet) para disco local
+    remote_silver_file = f"gfw/events_flattened/{particao}/events_flattened.parquet"
+    local_tmp_file = f"/tmp/silver_{ano}{mes}{dia}.parquet"
     
+    extractor = ADLSExtractor()
     try:
-        logging.info("Baixando dados da Camada Silver...")
-        file_client = service_client.get_file_system_client("silver").get_file_client(caminho_lake_silver)
-        with open(caminho_local_tmp, "wb") as f:
-            f.write(file_client.download_file().readall())
-    except Exception as e:
-        logging.error(f"Não foi possível baixar dados da Silver. Erro: {e}")
+        extractor.download_file_to_local("silver", remote_silver_file, local_tmp_file)
+    except Exception:
+        logging.warning("Encerrando pipeline devido a falha na extração Bronze.")
         return
 
-    # 3. Processamento Gold
+    # 2. Processamento Gold
     spark = SparkSession.builder.master("local[1]").appName("Oceanix_Gold").getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
     
     logging.info("Processando agregações (Gold Layer)...")
-    df_silver = spark.read.parquet(caminho_local_tmp)
+    df_silver = spark.read.parquet(local_tmp_file)
     
     # Regras de Negócio (Agregações)
     df_gold = df_silver.groupBy("vessel_id", "vessel_name", "vessel_type").agg(
@@ -65,10 +59,15 @@ def process_gold(target_date_str: str):
     buffer_gold = io.BytesIO()
     df_pandas_gold.to_parquet(buffer_gold, engine="pyarrow", index=False)
     
-    caminho_gold_lake = f"gfw/vessel_metrics/{particao}/vessel_metrics.parquet"
-    service_client.get_file_system_client("gold").get_file_client(caminho_gold_lake).upload_data(buffer_gold.getvalue(), overwrite=True)
+    caminho_gold_lake = f"gfw/vessel_metrics/{particao}"
     
-    logging.info(f"Camada Gold salva com sucesso em: {caminho_gold_lake}")
+    loader = ADLSLoader()
+    loader.upload_data_to_container(
+        data=buffer_gold.getvalue(),
+        container="gold",
+        path=caminho_gold_lake,
+        file_name="vessel_metrics.parquet"
+    )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

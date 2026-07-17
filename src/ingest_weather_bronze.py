@@ -2,14 +2,10 @@
 Ingestão Bronze - Open-Meteo (Marine Weather API).
 Extrai dados históricos de clima, vento e ondas para a Baía de São Marcos (Itaqui).
 """
-import os
-import json
 import logging
 import argparse
 import requests
 from datetime import datetime
-from azure.identity import ClientSecretCredential
-from azure.storage.filedatalake import DataLakeServiceClient
 from dotenv import load_dotenv
 from loaders.adls_loader import ADLSLoader
 
@@ -23,7 +19,6 @@ ITAQUI_LON = -44.40
 
 def ingest_weather_bronze(target_date_str: str):
     logging.info(f"Iniciando Ingestão Bronze (Weather) para a data: {target_date_str}")
-    loader = ADLSLoader()
     
     target_date = datetime.strptime(target_date_str, '%Y-%m-%d')
     ano, mes, dia = target_date.strftime('%Y'), target_date.strftime('%m'), target_date.strftime('%d')
@@ -58,7 +53,8 @@ def ingest_weather_bronze(target_date_str: str):
     nome_arquivo = "taqui_weather.json"
     
     logging.info(f"Iniciando ingestão diária: {len(weather_data)} eventos.")
-    loader.upload_json_to_bronze(weather_data, caminho_lake_bronze, nome_arquivo)
+    loader = ADLSLoader()
+    loader.upload_data_to_container(weather_data, "bronze", caminho_lake_bronze, nome_arquivo)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Ingestão de clima marítimo diário")

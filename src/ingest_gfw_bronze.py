@@ -42,7 +42,7 @@ def ingest_weather_bronze(target_date_str: str):
     nome_arquivo = "vessel_events_brazil.json"
     
     logging.info(f"Iniciando ingestão diária: {len(dados_brutos)} eventos.")
-    loader.upload_json_to_bronze(json_string, caminho_particao, nome_arquivo)
+    loader.upload_data_to_container(json_string, "bronze", caminho_particao, nome_arquivo)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Ingestão de Dados do GFW para a Camada Bronze")
